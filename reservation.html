@@ -119,8 +119,30 @@
         </div>
     </div>
 
+    <!-- 予約分析モーダル -->
+    <div id="analyticsModal" class="modal">
+        <div class="bg-white rounded-xl shadow-2xl p-6 max-w-4xl w-full mx-4 my-8 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold text-slate-800">予約状況分析</h2>
+                <button onclick="closeAnalyticsModal()" class="text-slate-400 hover:text-slate-600 text-3xl">&times;</button>
+            </div>
+
+            <div id="analyticsContent"></div>
+
+            <div class="mt-6 flex gap-3">
+                <button onclick="downloadReservationCSV()"
+                    class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition-colors">
+                    📥 CSVダウンロード
+                </button>
+                <button onclick="closeAnalyticsModal()"
+                    class="flex-1 bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 rounded-lg transition-colors">
+                    閉じる
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script>
-        // Firebase初期化
         const firebaseConfig = {
             apiKey: "AIzaSyAuzBKMdD_2IQOWEMm9bK7bjEem3OTwrXE",
             authDomain: "kaitoku-32394.firebaseapp.com",
@@ -140,23 +162,23 @@
         ];
 
         const COLOR_PALETTE = [
-            'bg-blue-100 border-blue-300 text-blue-800',
-            'bg-green-100 border-green-300 text-green-800',
-            'bg-purple-100 border-purple-300 text-purple-800',
-            'bg-pink-100 border-pink-300 text-pink-800',
-            'bg-yellow-100 border-yellow-300 text-yellow-800',
-            'bg-indigo-100 border-indigo-300 text-indigo-800',
-            'bg-red-100 border-red-300 text-red-800',
-            'bg-orange-100 border-orange-300 text-orange-800',
-            'bg-teal-100 border-teal-300 text-teal-800',
-            'bg-cyan-100 border-cyan-300 text-cyan-800',
-            'bg-lime-100 border-lime-300 text-lime-800',
-            'bg-emerald-100 border-emerald-300 text-emerald-800',
-            'bg-violet-100 border-violet-300 text-violet-800',
-            'bg-fuchsia-100 border-fuchsia-300 text-fuchsia-800',
-            'bg-rose-100 border-rose-300 text-rose-800',
-            'bg-sky-100 border-sky-300 text-sky-800',
-            'bg-amber-100 border-amber-300 text-amber-800'
+            'bg-blue-100 border-blue-400 text-blue-900',
+            'bg-green-100 border-green-400 text-green-900',
+            'bg-purple-100 border-purple-400 text-purple-900',
+            'bg-pink-100 border-pink-400 text-pink-900',
+            'bg-yellow-100 border-yellow-400 text-yellow-900',
+            'bg-indigo-100 border-indigo-400 text-indigo-900',
+            'bg-red-100 border-red-400 text-red-900',
+            'bg-orange-100 border-orange-400 text-orange-900',
+            'bg-teal-100 border-teal-400 text-teal-900',
+            'bg-cyan-100 border-cyan-400 text-cyan-900',
+            'bg-lime-100 border-lime-400 text-lime-900',
+            'bg-emerald-100 border-emerald-400 text-emerald-900',
+            'bg-violet-100 border-violet-400 text-violet-900',
+            'bg-fuchsia-100 border-fuchsia-400 text-fuchsia-900',
+            'bg-rose-100 border-rose-400 text-rose-900',
+            'bg-sky-100 border-sky-400 text-sky-900',
+            'bg-amber-100 border-amber-400 text-amber-900'
         ];
 
         let reservations = [];
@@ -233,7 +255,7 @@
         function renderCustomerModal() {
             const list = document.getElementById('customerList');
             list.innerHTML = customers.map(name => `
-                <div class="flex items-center justify-between p-3 ${customerColors[name]} rounded-lg">
+                <div class="flex items-center justify-between p-3 ${customerColors[name]} rounded-lg border-2">
                     <span class="font-bold">${name}</span>
                     <button onclick="deleteCustomer('${name}')" 
                         class="text-red-600 hover:text-red-800 font-bold">
@@ -363,6 +385,131 @@
             }
         }
 
+        function openAnalyticsModal() {
+            const modal = document.getElementById('analyticsModal');
+            renderAnalytics();
+            modal.classList.add('show');
+        }
+
+        function closeAnalyticsModal() {
+            const modal = document.getElementById('analyticsModal');
+            modal.classList.remove('show');
+        }
+
+        function renderAnalytics() {
+            const monthlyStats = {};
+            const customerStats = {};
+            
+            reservations.forEach(r => {
+                const month = r.date.substring(0, 7);
+                
+                if (!monthlyStats[month]) {
+                    monthlyStats[month] = { count: 0, seats: 0, customers: {} };
+                }
+                monthlyStats[month].count++;
+                monthlyStats[month].seats += r.seats;
+                
+                if (!monthlyStats[month].customers[r.name]) {
+                    monthlyStats[month].customers[r.name] = { count: 0, seats: 0 };
+                }
+                monthlyStats[month].customers[r.name].count++;
+                monthlyStats[month].customers[r.name].seats += r.seats;
+                
+                if (!customerStats[r.name]) {
+                    customerStats[r.name] = { count: 0, seats: 0 };
+                }
+                customerStats[r.name].count++;
+                customerStats[r.name].seats += r.seats;
+            });
+
+            const sortedMonths = Object.keys(monthlyStats).sort().reverse();
+            const sortedCustomers = Object.entries(customerStats).sort((a, b) => b[1].count - a[1].count);
+
+            const content = document.getElementById('analyticsContent');
+            content.innerHTML = `
+                <div class="space-y-6">
+                    <div class="bg-blue-50 rounded-lg p-4">
+                        <h3 class="font-bold text-lg mb-2">全体サマリー</h3>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <div class="text-sm text-slate-600">総予約数</div>
+                                <div class="text-2xl font-bold text-blue-600">${reservations.length}件</div>
+                            </div>
+                            <div>
+                                <div class="text-sm text-slate-600">総人数</div>
+                                <div class="text-2xl font-bold text-blue-600">${reservations.reduce((sum, r) => sum + r.seats, 0)}名</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 class="font-bold text-lg mb-3">予約者別集計</h3>
+                        <div class="space-y-2">
+                            ${sortedCustomers.map(([name, data]) => `
+                                <div class="flex items-center justify-between p-3 ${customerColors[name]} rounded-lg border-2">
+                                    <span class="font-bold">${name}</span>
+                                    <div class="text-right">
+                                        <div class="font-bold">${data.count}回 / ${data.seats}名</div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 class="font-bold text-lg mb-3">月別集計</h3>
+                        <div class="space-y-4">
+                            ${sortedMonths.map(month => `
+                                <div class="border-2 border-slate-200 rounded-lg p-4">
+                                    <div class="flex items-center justify-between mb-3">
+                                        <h4 class="font-bold text-lg">${month}</h4>
+                                        <div class="text-right">
+                                            <div class="text-sm text-slate-600">${monthlyStats[month].count}回 / ${monthlyStats[month].seats}名</div>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                        ${Object.entries(monthlyStats[month].customers).map(([name, data]) => `
+                                            <div class="text-sm p-2 ${customerColors[name]} rounded">
+                                                <div class="font-bold">${name}</div>
+                                                <div class="text-xs">${data.count}回 / ${data.seats}名</div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function downloadReservationCSV() {
+            if (reservations.length === 0) {
+                alert('ダウンロードする予約データがありません');
+                return;
+            }
+
+            let csv = '予約日,予約者,人数,備考\n';
+            
+            reservations.sort((a, b) => a.date.localeCompare(b.date)).forEach(r => {
+                csv += `"${r.date}","${r.name}","${r.seats}","${r.notes || ''}"\n`;
+            });
+
+            const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+            const blob = new Blob([bom, csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            
+            const link = document.createElement('a');
+            const today = new Date().toISOString().split('T')[0];
+            link.href = url;
+            link.download = `築地貝徳_予約データ_${today}.csv`;
+            link.click();
+            
+            URL.revokeObjectURL(url);
+            
+            alert('CSVファイルをダウンロードしました');
+        }
+
         function getDaysInMonth(year, month) {
             return new Date(year, month + 1, 0).getDate();
         }
@@ -395,7 +542,7 @@
             let dayCounter = 1;
 
             for (let week = 0; week < 6; week++) {
-                calendarHTML += '<div class="grid grid-cols-7 gap-2">';
+                calendarHTML += '<div class="grid grid-cols-7 gap-1 md:gap-2">';
                 
                 for (let day = 0; day < 7; day++) {
                     const cellIndex = week * 7 + day;
@@ -406,24 +553,29 @@
                         const dateStr = formatDate(year, month, dayCounter);
                         const dayReservations = getReservationsForDate(dateStr);
                         const isToday = dateStr === new Date().toISOString().split('T')[0];
+                        const hasReservations = dayReservations.length > 0;
                         
                         calendarHTML += `
-                            <div class="aspect-square bg-white rounded-lg shadow hover:shadow-lg transition-shadow border-2 ${isToday ? 'border-blue-500' : 'border-slate-200'} p-2 flex flex-col">
-                                <div class="text-sm font-bold mb-1 ${day === 0 ? 'text-red-600' : day === 6 ? 'text-blue-600' : 'text-slate-700'}">
+                            <div class="relative bg-white rounded-lg shadow transition-all border-2 ${
+                                isToday ? 'border-blue-500' : hasReservations ? 'border-green-400' : 'border-slate-200'
+                            } ${hasReservations ? 'bg-green-50' : ''} hover:shadow-lg p-1 md:p-2">
+                                <div class="text-xs md:text-sm font-bold mb-1 ${
+                                    day === 0 ? 'text-red-600' : day === 6 ? 'text-blue-600' : 'text-slate-700'
+                                }">
                                     ${dayCounter}
                                 </div>
-                                <div class="flex-1 overflow-y-auto space-y-1">
+                                <div class="space-y-1 min-h-[40px] md:min-h-[60px]">
                                     ${dayReservations.map(r => `
                                         <div onclick="openReservationModal(null, ${JSON.stringify(r).replace(/"/g, '&quot;')})" 
-                                            class="text-xs p-1 rounded border-2 cursor-pointer hover:opacity-80 ${customerColors[r.name] || 'bg-slate-100 border-slate-300 text-slate-800'}">
-                                            <div class="font-bold">${r.name}</div>
-                                            <div>${r.seats}名</div>
+                                            class="text-xs p-1 md:p-1.5 rounded border-2 cursor-pointer hover:opacity-80 ${customerColors[r.name]}">
+                                            <div class="font-bold truncate">${r.name}</div>
+                                            <div class="font-bold">${r.seats}名</div>
                                         </div>
                                     `).join('')}
                                 </div>
                                 ${dayReservations.length < 2 ? `
                                     <button onclick="openReservationModal('${dateStr}')" 
-                                        class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 rounded py-1 mt-1 transition-colors">
+                                        class="w-full text-xs bg-blue-500 hover:bg-blue-600 text-white rounded py-1 mt-1 font-bold">
                                         +
                                     </button>
                                 ` : ''}
@@ -447,7 +599,11 @@
                                 <h1 class="text-2xl md:text-3xl font-bold text-slate-800 mb-2">予約管理</h1>
                                 <p class="text-slate-600">築地貝徳 ディナー予約（最大8席・2組まで）</p>
                             </div>
-                            <div class="flex gap-2">
+                            <div class="flex gap-2 flex-wrap">
+                                <button onclick="openAnalyticsModal()"
+                                    class="bg-green-600 hover:bg-green-700 text-white font-medium px-4 py-2 rounded-lg transition-colors">
+                                    📊 予約分析
+                                </button>
                                 <button onclick="openCustomerModal()"
                                     class="bg-purple-600 hover:bg-purple-700 text-white font-medium px-4 py-2 rounded-lg transition-colors">
                                     👥 予約者管理
@@ -460,14 +616,14 @@
                         </div>
                     </div>
 
-                    <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                    <div class="bg-white rounded-xl shadow-lg p-4 md:p-6 mb-6">
                         <div class="flex items-center justify-between">
                             <button onclick="changeMonth(-1)" 
                                 ${!canGoPrev ? 'disabled class="opacity-50 cursor-not-allowed"' : ''}
                                 class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-lg transition-colors">
                                 ← 前月
                             </button>
-                            <h2 class="text-2xl md:text-3xl font-bold text-slate-800">
+                            <h2 class="text-xl md:text-3xl font-bold text-slate-800">
                                 ${year}年 ${monthNames[month]}
                             </h2>
                             <button onclick="changeMonth(1)" 
@@ -478,10 +634,10 @@
                         </div>
                     </div>
 
-                    <div class="bg-white rounded-xl shadow-lg p-4 md:p-6">
-                        <div class="grid grid-cols-7 gap-2 mb-2">
+                    <div class="bg-white rounded-xl shadow-lg p-2 md:p-4">
+                        <div class="grid grid-cols-7 gap-1 md:gap-2 mb-2">
                             ${dayNames.map((name, i) => `
-                                <div class="text-center font-bold text-sm ${i === 0 ? 'text-red-600' : i === 6 ? 'text-blue-600' : 'text-slate-700'}">
+                                <div class="text-center font-bold text-xs md:text-sm ${i === 0 ? 'text-red-600' : i === 6 ? 'text-blue-600' : 'text-slate-700'}">
                                     ${name}
                                 </div>
                             `).join('')}
@@ -489,7 +645,7 @@
                         ${calendarHTML}
                     </div>
 
-                    <div class="bg-white rounded-xl shadow-lg p-6 mt-6">
+                    <div class="bg-white rounded-xl shadow-lg p-4 md:p-6 mt-6">
                         <h3 class="font-bold text-slate-800 mb-4">予約者カラー</h3>
                         <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
                             ${customers.map(name => `
@@ -513,13 +669,14 @@
         window.closeCustomerModal = closeCustomerModal;
         window.addCustomer = addCustomer;
         window.deleteCustomer = deleteCustomer;
+        window.openAnalyticsModal = openAnalyticsModal;
+        window.closeAnalyticsModal = closeAnalyticsModal;
+        window.downloadReservationCSV = downloadReservationCSV;
 
-        // 初期化
         (async () => {
             await initializeCustomers();
             await loadReservations();
             
-            // リアルタイム更新
             database.ref('reservations').on('value', async () => {
                 await loadReservations();
                 render();
