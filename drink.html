@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>築地貝徳 ドリンク注文管理</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <style>
+        body { font-family: 'Hiragino Sans', 'Yu Gothic', sans-serif; }
+        .flash { animation: flash 0.3s ease-out; }
+        @keyframes flash {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); background-color: #4ade80; }
+            100% { transform: scale(1); }
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            overflow-y: auto;
+        }
+        .modal.show {
+            display: flex;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 to-slate-100 min-h-screen">
+    <div id="app" class="p-4 md:p-6"></div>
+    
+    <!-- 価格編集モーダル -->
+    <div id="priceModal" class="modal">
+        <div class="bg-white rounded-xl shadow-2xl p-6 max-w-2xl w-full mx-4 my-8 max-h-[80vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold text-slate-800">ドリンク価格設定</h2>
+                <button onclick="closePriceModal()" class="text-slate-400 hover:text-slate-600 text-3xl">&times;</button>
+            </div>
+            <div id="priceEditList" class="space-y-3"></div>
+            <div class="mt-6 flex gap-3">
+                <button onclick="savePrices()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg">
+                    保存
+                </button>
+                <button onclick="resetPrices()" class="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg">
+                    デフォルトに戻す
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ドリンク管理モーダル -->
+    <div id="drinkManageModal" class="modal">
+        <div class="bg-white rounded-xl shadow-2xl p-6 max-w-2xl w-full mx-4 my-8 max-h-[80vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold text-slate-800">ドリンクメニュー管理</h2>
+                <button onclick="closeDrinkManageModal()" class="text-slate-400 hover:text-slate-600 text-3xl">&times;</button>
+            </div>
+
+            <div class="mb-6 p-4 bg-slate-50 rounded-lg">
+                <h3 class="font-bold text-slate-700 mb-3">新しいドリンクを追加</h3>
+                <div class="space-y-2">
+                    <input type="text" id="newDrinkName" placeholder="ドリンク名"
+                        class="w-full px-4 py-2 border-2 border-slate-300 rounded-lg focus:border-blue-500 focus:outline-none">
+                    <div class="flex gap-2">
+                        <input type="number" id="newDrinkPrice" placeholder="価格" min="0" step="100"
+                            class="flex-1 px-4 py-2 border-2 border-slate-300 rounded-lg focus:border-blue-500 focus:outline-none">
+                        <button onclick="addDrink()"
+                            class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded-lg transition-colors">
+                            追加
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <h3 class="font-bold text-slate-700 mb-3">ドリンクリスト</h3>
+                <div id="drinkManageList" class="space-y-2"></div>
+            </div>
+
+            <div class="mt-6">
+                <button onclick="closeDrinkManageModal()"
+                    class="w-full bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 rounded-lg transition-colors">
+                    閉じる
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Firebase初期化
+        const firebaseConfig = {
+            apiKey: "AIzaSyAuzBKMdD_2IQOWEMm9bK7bjEem3OTwrXE",
+            authDomain: "kaitoku-32394.firebaseapp.com",
+            databaseURL: "https://kaitoku-32394-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "kaitoku-32394",
+            storageBucket: "kaitoku-32394.firebasestorage.app",
+            messagingSenderId: "166132839262",
+            appId: "1:166132839262:web:128ce9ebe95b1c6bfa55cf"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+
+        const defaultDrinkMenu = [
+            { id: 1, name: 'お水', price: 0 },
+            { id: 2, name: '炭酸水', price: 0 },
+            { id: 3, name: 'お茶', price: 0 },
+            { id: 4, name: 'ハイボール（生ビール）', price: 700 },
+            { id: 5, name: 'アサヒ黒生（瓶ビール）', price: 700 },
+            { id: 6, name: 'ハイボール', price: 700 },
+            { id: 7, name: 'ウイスキー ジャックダニエル', price: 2500 },
+            { id: 8, name: 'ウイスキー サントリー角', price: 2500 },
+            { id: 9, name: '焼酎（DAIYAME）', price: 1200 },
+            { id: 10, name: '日本酒（酔鯨）', price: 1200 },
+            { id: 11, name: '日本酒（景虎）', price: 1200 },
+            { id: 12, name: '赤ワイン', price: 2000 },
+            { id: 13, name: '白ワイン', price: 2000 },
+            { id: 14, name: 'ソフトドリンク　各種', price: 300 },
+            { id: 15, name: 'ワイン持ち込み', price: 4000 },
+        ];
+
+        let drinkMenu = [];
+        let orders = {};
+        let selectedSeat = 1;
+        let flashingDrink = null;
+        let salesHistory = [];
+        let currentView = 'order';
+
+        async function initializeDrinkMenu() {
+            try {
+                const snapshot = await database.ref('drinkMenu').once('value');
+                if (snapshot.exists()) {
+                    drinkMenu = snapshot.val();
+                } else {
+                    drinkMenu = JSON.parse(JSON.stringify(defaultDrinkMenu));
+                    await database.ref('drinkMenu').set(drinkMenu);
+                }
+            } catch (e) {
+                console.error('メニュー読み込みエラー:', e);
+                drinkMenu = JSON.parse(JSON.stringify(defaultDrinkMenu));
+            }
+        }
+
+        async function addDrink() {
+            const name = document.getElementById('newDrinkName').value.trim();
+            const price = parseInt(document.getElementById('newDrinkPrice').value) || 0;
+            
+            if (!name) {
+                alert('ドリンク名を入力してください');
+                return;
+            }
+            
+            const maxId = drinkMenu.length > 0 ? Math.max(...drinkMenu.map(d => d.id)) : 0;
+            drinkMenu.push({
+                id: maxId + 1,
+                name: name,
+                price: price
+            });
+            
+            await database.ref('drinkMenu').set(drinkMenu);
+            document.getElementById('newDrinkName').value = '';
+            document.getElementById('newDrinkPrice').value = '';
+            renderDrinkManageModal();
+            render();
+        }
+
+        async function deleteDrink(id) {
+            const drink = drinkMenu.find(d => d.id === id);
+            if (confirm(`「${drink.name}」を削除しますか？`)) {
+                drinkMenu = drinkMenu.filter(d => d.id !== id);
+                await database.ref('drinkMenu').set(drinkMenu);
+                renderDrinkManageModal();
+                render();
+            }
+        }
+
+        function openDrinkManageModal() {
+            const modal = document.getElementById('drinkManageModal');
+            renderDrinkManageModal();
+            modal.classList.add('show');
+        }
+
+        function closeDrinkManageModal() {
+            const modal = document.getElementById('drinkManageModal');
+            modal.classList.remove('show');
+        }
+
+        function renderDrinkManageModal() {
+            const list = document.getElementById('drinkManageList');
+            list.innerHTML = drinkMenu.map(drink => `
+                <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                    <div class="flex-1">
+                        <div class="font-bold text-slate-800">${drink.name}</div>
+                        <div class="text-sm text-slate-600">${drink.price === 0 ? '無料' : '¥' + drink.price.toLocaleString()}</div>
+                    </div>
+                    <button onclick="deleteDrink(${drink.id})" 
+                        class="text-red-600 hover:text-red-800 font-bold">
+                        削除
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        async function loadSalesData() {
+            try {
+                const snapshot = await database.ref('sales').once('value');
+                if (snapshot.exists()) {
+                    const data = snapshot.val();
+                    salesHistory = Object.keys(data).map(key => data[key]);
+                } else {
+                    salesHistory = [];
+                }
+            } catch (e) {
+                console.log('売上データ読み込みエラー:', e);
+            }
+        }
+
+        async function saveSalesData() {
+            try {
+                await database.ref('sales').set(salesHistory);
+            } catch (e) {
+                console.error('売上データ保存エラー:', e);
+            }
+        }
+
+        function openPriceModal() {
+            const modal = document.getElementById('priceModal');
+            const list = document.getElementById('priceEditList');
+            
+            list.innerHTML = drinkMenu.map(drink => `
+                <div class="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
+                    <div class="flex-1 font-medium text-slate-800">${drink.name}</div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-slate-600">¥</span>
+                        <input 
+                            type="number" 
+                            id="price-${drink.id}"
+                            value="${drink.price}"
+                            min="0"
+                            step="100"
+                            class="w-24 px-3 py-2 border-2 border-slate-300 rounded-lg font-bold text-right focus:border-blue-500 focus:outline-none"
+                        >
+                    </div>
+                </div>
+            `).join('');
+            
+            modal.classList.add('show');
+        }
+
+        function closePriceModal() {
+            const modal = document.getElementById('priceModal');
+            modal.classList.remove('show');
+        }
+
+        async function savePrices() {
+            drinkMenu.forEach(drink => {
+                const input = document.getElementById(`price-${drink.id}`);
+                if (input) {
+                    drink.price = parseInt(input.value) || 0;
+                }
+            });
+            await database.ref('drinkMenu').set(drinkMenu);
+            closePriceModal();
+            render();
+            alert('価格を保存しました');
+        }
+
+        async function resetPrices() {
+            if (confirm('価格をデフォルトに戻しますか？')) {
+                drinkMenu = JSON.parse(JSON.stringify(defaultDrinkMenu));
+                await database.ref('drinkMenu').set(drinkMenu);
+                closePriceModal();
+                render();
+                alert('価格をリセットしました');
+            }
+        }
+
+        function addOrder(drink) {
+            if (!orders[selectedSeat]) orders[selectedSeat] = [];
+            orders[selectedSeat].push({ ...drink, orderId: Date.now() });
+            
+            flashingDrink = drink.id;
+            setTimeout(() => {
+                flashingDrink = null;
+                render();
+            }, 300);
+            
+            render();
+        }
+
+        function removeOrder(seat, orderId) {
+            orders[seat] = orders[seat].filter(o => o.orderId !== orderId);
+            if (orders[seat].length === 0) delete orders[seat];
+            render();
+        }
+
+        function calculateSeatTotal(seat) {
+            if (!orders[seat]) return 0;
+            return orders[seat].reduce((sum, o) => sum + o.price, 0);
+        }
+
+        function calculateAllTotal() {
+            return Object.keys(orders).reduce((sum, seat) => sum + calculateSeatTotal(parseInt(seat)), 0);
+        }
+
+        async function checkoutSeat(seat) {
+            if (orders[seat] && orders[seat].length > 0) {
+                const total = calculateSeatTotal(seat);
+                const saleRecord = {
+                    timestamp: new Date().toISOString(),
+                    date: new Date().toLocaleDateString('ja-JP'),
+                    time: new Date().toLocaleTimeString('ja-JP'),
+                    seat: seat,
+                    items: orders[seat].map(o => ({ name: o.name, price: o.price })),
+                    total: total
+                };
+                salesHistory.push(saleRecord);
+                await saveSalesData();
+                
+                alert(`席${seat}番：お会計 ¥${total.toLocaleString()}\n\n売上データに記録しました`);
+                delete orders[seat];
+                render();
+            }
+        }
+
+        async function checkoutAll() {
+            const total = calculateAllTotal();
+            if (total > 0) {
+                const seats = Object.keys(orders).filter(s => orders[s]?.length > 0);
+                const allItems = [];
+                seats.forEach(seat => {
+                    orders[seat].forEach(o => allItems.push({ name: o.name, price: o.price }));
+                });
+                
+                const saleRecord = {
+                    timestamp: new Date().toISOString(),
+                    date: new Date().toLocaleDateString('ja-JP'),
+                    time: new Date().toLocaleTimeString('ja-JP'),
+                    seat: seats.join(','),
+                    items: allItems,
+                    total: total
+                };
+                salesHistory.push(saleRecord);
+                await saveSalesData();
+                
+                alert(`まとめてお会計（席${seats.join(', ')}番）：¥${total.toLocaleString()}\n\n売上データに記録しました`);
+                orders = {};
+                render();
+            }
+        }
+
+        function getDrinkStats(month = null) {
+            const stats = {};
+            const filteredSales = month 
+                ? salesHistory.filter(s => s.date.startsWith(month))
+                : salesHistory;
+            
+            filteredSales.forEach(sale => {
+                sale.items.forEach(item => {
+                    if (!stats[item.name]) {
+                        stats[item.name] = { count: 0, total: 0 };
+                    }
+                    stats[item.name].count++;
+                    stats[item.name].total += item.price;
+                });
+            });
+            
+            return Object.entries(stats)
+                .sort((a, b) => b[1].count - a[1].count);
+        }
+
+        function getMonthlyTotal(month = null) {
+            const filteredSales = month 
+                ? salesHistory.filter(s => s.date.startsWith(month))
+                : salesHistory;
+            return filteredSales.reduce((sum, sale) => sum + sale.total, 0);
+        }
+
+        async function clearSalesData() {
+            if (confirm('本当に売上データを全て削除しますか？\nこの操作は取り消せません。')) {
+                salesHistory = [];
+                await database.ref('sales').remove();
+                alert('売上データを削除しました');
+                render();
+            }
+        }
+
+        function escapeCSV(value) {
+            if (value == null) return '""';
+            const str = String(value);
+            const escaped = str.replace(/"/g, '""');
+            return `"${escaped}"`;
+        }
+
+        function downloadCSV() {
+            if (salesHistory.length === 0) {
+                alert('ダウンロードする売上データがありません');
+                return;
+            }
+
+            let csv = '日付,時間,席番号,ドリンク名,単価,会計合計\n';
+            
+            salesHistory.forEach(sale => {
+                sale.items.forEach((item, index) => {
+                    if (index === 0) {
+                        csv += `${escapeCSV(sale.date)},${escapeCSV(sale.time)},${escapeCSV(sale.seat + '番')},${escapeCSV(item.name)},${escapeCSV('¥' + item.price)},${escapeCSV('¥' + sale.total)}\n`;
+                    } else {
+                        csv += `${escapeCSV('')},${escapeCSV('')},${escapeCSV('')},${escapeCSV(item.name)},${escapeCSV('¥' + item.price)},${escapeCSV('')}\n`;
+                    }
+                });
+            });
+
+            const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+            const blob = new Blob([bom, csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            
+            const link = document.createElement('a');
+            const today = new Date().toISOString().split('T')[0];
+            link.href = url;
+            link.download = `築地貝徳_売上データ_${today}.csv`;
+            link.click();
+            
+            URL.revokeObjectURL(url);
+            
+            alert('CSVファイルをダウンロードしました');
+        }
+
+        window.clearSalesData = clearSalesData;
+        window.downloadCSV = downloadCSV;
+        window.openPriceModal = openPriceModal;
+        window.closePriceModal = closePriceModal;
+        window.savePrices = savePrices;
+        window.resetPrices = resetPrices;
+        window.openDrinkManageModal = openDrinkManageModal;
+        window.closeDrinkManageModal = closeDrinkManageModal;
+        window.addDrink = addDrink;
+        window.deleteDrink = deleteDrink;
+
+        function renderAnalytics() {
+            const stats = getDrinkStats();
+            const monthlyTotal = getMonthlyTotal();
+
+            return `
+                <div class="max-w-6xl mx-auto">
+                    <div class="bg-white rounded-lg shadow-lg p-4 md:p-6 mb-4 md:mb-6">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h1 class="text-2xl md:text-3xl font-bold text-slate-800 mb-2">売上分析</h1>
+                                <p class="text-slate-600">データ数：${salesHistory.length}件</p>
+                            </div>
+                            <button onclick="currentView='order'; render();"
+                                class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded-lg">
+                                注文画面へ
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                        <div class="bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-lg shadow-lg p-6">
+                            <div class="text-sm opacity-90 mb-2">累計売上</div>
+                            <div class="text-3xl font-bold">¥${monthlyTotal.toLocaleString()}</div>
+                        </div>
+                        <div class="bg-gradient-to-br from-green-600 to-green-700 text-white rounded-lg shadow-lg p-6">
+                            <div class="text-sm opacity-90 mb-2">会計数</div>
+                            <div class="text-3xl font-bold">${salesHistory.length}件</div>
+                        </div>
+                        <div class="bg-gradient-to-br from-purple-600 to-purple-700 text-white rounded-lg shadow-lg p-6">
+                            <div class="text-sm opacity-90 mb-2">平均単価</div>
+                            <div class="text-3xl font-bold">¥${salesHistory.length > 0 ? Math.round(monthlyTotal / salesHistory.length).toLocaleString() : 0}</div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-lg shadow-lg p-4 md:p-6 mb-6">
+                        <h2 class="text-xl font-bold text-slate-800 mb-4">ドリンク別売上</h2>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left">
+                                <thead>
+                                    <tr class="border-b-2 border-slate-200">
+                                        <th class="pb-3 font-bold text-slate-700">ドリンク名</th>
+                                        <th class="pb-3 font-bold text-slate-700 text-right">本数</th>
+                                        <th class="pb-3 font-bold text-slate-700 text-right">売上</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${stats.map(([name, data]) => `
+                                        <tr class="border-b border-slate-100">
+                                            <td class="py-3 text-slate-800">${name}</td>
+                                            <td class="py-3 text-right font-bold text-blue-600">${data.count}本</td>
+                                            <td class="py-3 text-right font-bold text-slate-800">¥${data.total.toLocaleString()}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-lg shadow-lg p-4 md:p-6 mb-6">
+                        <h2 class="text-xl font-bold text-slate-800 mb-4">会計履歴（最新20件）</h2>
+                        <div class="space-y-3 max-h-96 overflow-y-auto">
+                            ${salesHistory.slice(-20).reverse().map(sale => `
+                                <div class="border border-slate-200 rounded-lg p-3">
+                                    <div class="flex justify-between items-start mb-2">
+                                        <div class="text-sm text-slate-600">${sale.date} ${sale.time} - 席${sale.seat}番</div>
+                                        <div class="font-bold text-blue-600">¥${sale.total.toLocaleString()}</div>
+                                    </div>
+                                    <div class="text-xs text-slate-500">
+                                        ${sale.items.map(item => item.name).join(', ')}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-lg shadow-lg p-4 md:p-6">
+                        <h2 class="text-xl font-bold text-slate-800 mb-4">データ管理</h2>
+                        <div class="space-y-3">
+                            <button onclick="downloadCSV()"
+                                class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-3 rounded-lg w-full text-lg">
+                                📥 売上データをCSVダウンロード
+                            </button>
+                            <button onclick="clearSalesData()"
+                                class="bg-red-600 hover:bg-red-700 text-white font-bold px-6 py-3 rounded-lg w-full text-lg">
+                                🗑️ 売上データを全て削除
+                            </button>
+                        </div>
+                        <p class="text-sm text-slate-500 mt-2">※削除したデータは復元できません</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderOrder() {
+            return `
+                <div class="max-w-6xl mx-auto">
+                    <div class="bg-white rounded-lg shadow-lg p-4 md:p-6 mb-4 md:mb-6">
+                        <div class="flex items-center justify-between flex-wrap gap-3">
+                            <div>
+                                <h1 class="text-2xl md:text-3xl font-bold text-slate-800 mb-2">築地貝徳</h1>
+                                <p class="text-slate-600">ドリンク注文管理システム</p>
+                            </div>
+                            <div class="flex gap-2 flex-wrap">
+                                <button onclick="openDrinkManageModal()"
+                                    class="bg-orange-600 hover:bg-orange-700 text-white font-medium px-4 py-2 rounded-lg">
+                                    🍺 メニュー管理
+                                </button>
+                                <button onclick="openPriceModal()"
+                                    class="bg-purple-600 hover:bg-purple-700 text-white font-medium px-4 py-2 rounded-lg">
+                                    ⚙️ 価格設定
+                                </button>
+                                <button onclick="currentView='analytics'; render();"
+                                    class="bg-green-600 hover:bg-green-700 text-white font-medium px-4 py-2 rounded-lg">
+                                    📊 売上分析
+                                </button>
+                                <a href="index.html"
+                                    class="bg-slate-600 hover:bg-slate-700 text-white font-medium px-4 py-2 rounded-lg">
+                                    ← トップへ
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
+                        <div class="lg:col-span-2 space-y-4 md:space-y-6">
+                            <div class="bg-white rounded-lg shadow-lg p-4 md:p-6">
+                                <h2 class="text-lg md:text-xl font-bold text-slate-800 mb-4">席を選択</h2>
+                                <div class="grid grid-cols-4 gap-2 md:gap-3">
+                                    ${[1,2,3,4,5,6,7,8].map(seat => `
+                                        <button onclick="selectedSeat=${seat}; render();" 
+                                            class="p-3 md:p-4 rounded-lg font-bold text-base md:text-lg transition-all ${
+                                                selectedSeat === seat
+                                                    ? 'bg-blue-600 text-white shadow-lg scale-105'
+                                                    : orders[seat]?.length > 0
+                                                    ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                            }">
+                                            ${seat}番
+                                            ${orders[seat]?.length > 0 ? `<div class="text-xs mt-1">(${orders[seat].length}品)</div>` : ''}
+                                        </button>
+                                    `).join('')}
+                                </div>
+                            </div>
+
+                            <div class="bg-white rounded-lg shadow-lg p-4 md:p-6">
+                                <h2 class="text-lg md:text-xl font-bold text-slate-800 mb-4">
+                                    ドリンクメニュー（席${selectedSeat}番）
+                                </h2>
+                                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 md:gap-3">
+                                    ${drinkMenu.map(drink => `
+                                        <button onclick="addOrder(${JSON.stringify(drink).replace(/"/g, '&quot;')})"
+                                            class="flex flex-col items-start justify-between p-2 md:p-3 rounded-lg transition-all duration-200 border-2 active:scale-95 ${
+                                                flashingDrink === drink.id
+                                                    ? 'bg-green-400 border-green-500'
+                                                    : 'bg-slate-50 hover:bg-blue-50 border-transparent hover:border-blue-300'
+                                            }">
+                                            <span class="font-medium text-xs md:text-sm ${
+                                                flashingDrink === drink.id ? 'text-white' : 'text-slate-800'
+                                            }">
+                                                ${drink.name}
+                                            </span>
+                                            <div class="flex items-center gap-1 md:gap-2 mt-1 md:mt-2">
+                                                <span class="font-bold text-sm md:text-base ${
+                                                    flashingDrink === drink.id ? 'text-white' : 'text-blue-600'
+                                                }">
+                                                    ${drink.price === 0 ? '無料' : `¥${drink.price.toLocaleString()}`}
+                                                </span>
+                                            </div>
+                                        </button>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="space-y-4 md:space-y-6">
+                            <div class="bg-white rounded-lg shadow-lg p-4 md:p-6">
+                                <h2 class="text-lg md:text-xl font-bold text-slate-800 mb-4">現在の注文</h2>
+                                <div class="space-y-4 max-h-96 overflow-y-auto">
+                                    ${Object.keys(orders).sort((a,b) => a-b).map(seat => {
+                                        const seatOrders = orders[seat];
+                                        if (!seatOrders || seatOrders.length === 0) return '';
+                                        return `
+                                            <div class="border-2 border-slate-200 rounded-lg p-3 md:p-4">
+                                                <div class="flex items-center justify-between mb-3">
+                                                    <h3 class="font-bold text-slate-800">席${seat}番</h3>
+                                                    <span class="font-bold text-blue-600">
+                                                        ¥${calculateSeatTotal(parseInt(seat)).toLocaleString()}
+                                                    </span>
+                                                </div>
+                                                <div class="space-y-2">
+                                                    ${seatOrders.map(order => `
+                                                        <div class="flex items-center justify-between text-sm bg-slate-50 p-2 rounded">
+                                                            <span class="text-slate-700">${order.name}</span>
+                                                            <div class="flex items-center gap-2">
+                                                                <span class="text-slate-600">
+                                                                    ${order.price === 0 ? '無料' : `¥${order.price.toLocaleString()}`}
+                                                                </span>
+                                                                <button onclick="removeOrder(${seat}, ${order.orderId})"
+                                                                    class="text-red-500 hover:text-red-700 text-xl">
+                                                                    ×
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    `).join('')}
+                                                </div>
+                                                <button onclick="checkoutSeat(${seat})"
+                                                    class="w-full mt-3 bg-green-600 hover:bg-green-700 text-white font-medium py-2 rounded-lg transition-colors">
+                                                    💰 個別会計
+                                                </button>
+                                            </div>
+                                        `;
+                                    }).join('')}
+                                </div>
+                            </div>
+
+                            ${calculateAllTotal() > 0 ? `
+                                <div class="bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg shadow-lg p-4 md:p-6 text-white">
+                                    <h2 class="text-lg md:text-xl font-bold mb-4">合計金額</h2>
+                                    <div class="text-3xl md:text-4xl font-bold mb-4">
+                                        ¥${calculateAllTotal().toLocaleString()}
+                                    </div>
+                                    <button onclick="checkoutAll()"
+                                        class="w-full bg-white text-blue-700 font-bold py-2 md:py-3 rounded-lg hover:bg-blue-50 transition-colors">
+                                        👥 まとめて会計
+                                    </button>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function render() {
+            const app = document.getElementById('app');
+            app.innerHTML = currentView === 'analytics' ? renderAnalytics() : renderOrder();
+        }
+
+        // 初期化
+        (async () => {
+            await initializeDrinkMenu();
+            await loadSalesData();
+            
+            // リアルタイム更新
+            database.ref('drinkMenu').on('value', async (snapshot) => {
+                if (snapshot.exists()) {
+                    drinkMenu = snapshot.val();
+                    render();
+                }
+            });
+            
+            database.ref('sales').on('value', async () => {
+                await loadSalesData();
+                render();
+            });
+            
+            render();
+        })();
+    </script>
+</body>
+</html>

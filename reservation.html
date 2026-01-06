@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>築地貝徳 予約管理</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <style>
+        body { font-family: 'Hiragino Sans', 'Yu Gothic', sans-serif; }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            overflow-y: auto;
+        }
+        .modal.show {
+            display: flex;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 to-slate-100 min-h-screen">
+    <div id="app" class="p-4 md:p-6"></div>
+
+    <!-- 予約追加/編集モーダル -->
+    <div id="reservationModal" class="modal">
+        <div class="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 my-8">
+            <div class="flex items-center justify-between mb-6">
+                <h2 id="modalTitle" class="text-2xl font-bold text-slate-800">予約追加</h2>
+                <button onclick="closeReservationModal()" class="text-slate-400 hover:text-slate-600 text-3xl">&times;</button>
+            </div>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-2">予約日</label>
+                    <input type="date" id="reservationDate" 
+                        class="w-full px-4 py-2 border-2 border-slate-300 rounded-lg focus:border-blue-500 focus:outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-2">予約者</label>
+                    <select id="reservationName" 
+                        class="w-full px-4 py-2 border-2 border-slate-300 rounded-lg focus:border-blue-500 focus:outline-none">
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-2">人数</label>
+                    <input type="number" id="reservationSeats" min="1" max="8" value="2"
+                        class="w-full px-4 py-2 border-2 border-slate-300 rounded-lg focus:border-blue-500 focus:outline-none">
+                    <p class="text-xs text-slate-500 mt-1">※最大8名まで</p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-2">備考（任意）</label>
+                    <textarea id="reservationNotes" rows="3"
+                        class="w-full px-4 py-2 border-2 border-slate-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                        placeholder="特記事項があれば入力"></textarea>
+                </div>
+            </div>
+
+            <div class="mt-6 flex gap-3">
+                <button onclick="saveReservation()" 
+                    class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition-colors">
+                    保存
+                </button>
+                <button onclick="closeReservationModal()" 
+                    class="flex-1 bg-slate-300 hover:bg-slate-400 text-slate-700 font-bold py-3 rounded-lg transition-colors">
+                    キャンセル
+                </button>
+            </div>
+            
+            <button id="deleteReservationButton" onclick="deleteReservation()" 
+                class="w-full mt-3 bg-red-600 hover:bg-red-700 text-white font-bold py-2 rounded-lg transition-colors hidden">
+                🗑️ この予約を削除
+            </button>
+        </div>
+    </div>
+
+    <!-- 予約者管理モーダル -->
+    <div id="customerModal" class="modal">
+        <div class="bg-white rounded-xl shadow-2xl p-6 max-w-2xl w-full mx-4 my-8 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold text-slate-800">予約者管理</h2>
+                <button onclick="closeCustomerModal()" class="text-slate-400 hover:text-slate-600 text-3xl">&times;</button>
+            </div>
+
+            <div class="mb-6 p-4 bg-slate-50 rounded-lg">
+                <h3 class="font-bold text-slate-700 mb-3">新しい予約者を追加</h3>
+                <div class="flex gap-2">
+                    <input type="text" id="newCustomerName" placeholder="予約者名"
+                        class="flex-1 px-4 py-2 border-2 border-slate-300 rounded-lg focus:border-blue-500 focus:outline-none">
+                    <button onclick="addCustomer()"
+                        class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded-lg transition-colors">
+                        追加
+                    </button>
+                </div>
+            </div>
+
+            <div>
+                <h3 class="font-bold text-slate-700 mb-3">予約者リスト</h3>
+                <div id="customerList" class="space-y-2"></div>
+            </div>
+
+            <div class="mt-6">
+                <button onclick="closeCustomerModal()"
+                    class="w-full bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 rounded-lg transition-colors">
+                    閉じる
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Firebase初期化
+        const firebaseConfig = {
+            apiKey: "AIzaSyAuzBKMdD_2IQOWEMm9bK7bjEem3OTwrXE",
+            authDomain: "kaitoku-32394.firebaseapp.com",
+            databaseURL: "https://kaitoku-32394-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "kaitoku-32394",
+            storageBucket: "kaitoku-32394.firebasestorage.app",
+            messagingSenderId: "166132839262",
+            appId: "1:166132839262:web:128ce9ebe95b1c6bfa55cf"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+
+        const DEFAULT_CUSTOMERS = [
+            '椎名', '豊國', '呂', '加藤', '丹羽', '小早川', 
+            '石田', '種谷', '山村', '大島', '赤川', '市場', 'マーク'
+        ];
+
+        const COLOR_PALETTE = [
+            'bg-blue-100 border-blue-300 text-blue-800',
+            'bg-green-100 border-green-300 text-green-800',
+            'bg-purple-100 border-purple-300 text-purple-800',
+            'bg-pink-100 border-pink-300 text-pink-800',
+            'bg-yellow-100 border-yellow-300 text-yellow-800',
+            'bg-indigo-100 border-indigo-300 text-indigo-800',
+            'bg-red-100 border-red-300 text-red-800',
+            'bg-orange-100 border-orange-300 text-orange-800',
+            'bg-teal-100 border-teal-300 text-teal-800',
+            'bg-cyan-100 border-cyan-300 text-cyan-800',
+            'bg-lime-100 border-lime-300 text-lime-800',
+            'bg-emerald-100 border-emerald-300 text-emerald-800',
+            'bg-violet-100 border-violet-300 text-violet-800',
+            'bg-fuchsia-100 border-fuchsia-300 text-fuchsia-800',
+            'bg-rose-100 border-rose-300 text-rose-800',
+            'bg-sky-100 border-sky-300 text-sky-800',
+            'bg-amber-100 border-amber-300 text-amber-800'
+        ];
+
+        let reservations = [];
+        let customers = [];
+        let customerColors = {};
+        let currentMonth = new Date(2026, 0, 1);
+        let editingReservationId = null;
+
+        async function initializeCustomers() {
+            try {
+                const snapshot = await database.ref('customers').once('value');
+                if (snapshot.exists()) {
+                    customers = snapshot.val();
+                } else {
+                    customers = [...DEFAULT_CUSTOMERS];
+                    await database.ref('customers').set(customers);
+                }
+                
+                customers.forEach((name, index) => {
+                    if (!customerColors[name]) {
+                        customerColors[name] = COLOR_PALETTE[index % COLOR_PALETTE.length];
+                    }
+                });
+            } catch (e) {
+                console.error('予約者データ読み込みエラー:', e);
+                customers = [...DEFAULT_CUSTOMERS];
+            }
+        }
+
+        async function addCustomer() {
+            const input = document.getElementById('newCustomerName');
+            const name = input.value.trim();
+            
+            if (!name) {
+                alert('予約者名を入力してください');
+                return;
+            }
+            
+            if (customers.includes(name)) {
+                alert('既に登録されている予約者です');
+                return;
+            }
+            
+            customers.push(name);
+            customerColors[name] = COLOR_PALETTE[customers.length % COLOR_PALETTE.length];
+            await database.ref('customers').set(customers);
+            input.value = '';
+            renderCustomerModal();
+            updateReservationNameSelect();
+        }
+
+        async function deleteCustomer(name) {
+            if (confirm(`「${name}」を削除しますか？\n※この予約者の予約データは削除されません`)) {
+                customers = customers.filter(c => c !== name);
+                delete customerColors[name];
+                await database.ref('customers').set(customers);
+                renderCustomerModal();
+                updateReservationNameSelect();
+            }
+        }
+
+        function openCustomerModal() {
+            const modal = document.getElementById('customerModal');
+            renderCustomerModal();
+            modal.classList.add('show');
+        }
+
+        function closeCustomerModal() {
+            const modal = document.getElementById('customerModal');
+            modal.classList.remove('show');
+            render();
+        }
+
+        function renderCustomerModal() {
+            const list = document.getElementById('customerList');
+            list.innerHTML = customers.map(name => `
+                <div class="flex items-center justify-between p-3 ${customerColors[name]} rounded-lg">
+                    <span class="font-bold">${name}</span>
+                    <button onclick="deleteCustomer('${name}')" 
+                        class="text-red-600 hover:text-red-800 font-bold">
+                        削除
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function updateReservationNameSelect() {
+            const select = document.getElementById('reservationName');
+            const currentValue = select.value;
+            select.innerHTML = '<option value="">選択してください</option>' + 
+                customers.map(name => `<option value="${name}">${name}</option>`).join('');
+            if (currentValue && customers.includes(currentValue)) {
+                select.value = currentValue;
+            }
+        }
+
+        async function loadReservations() {
+            try {
+                const snapshot = await database.ref('reservations').once('value');
+                if (snapshot.exists()) {
+                    const data = snapshot.val();
+                    reservations = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+                } else {
+                    reservations = [];
+                }
+            } catch (e) {
+                console.error('予約データ読み込みエラー:', e);
+            }
+        }
+
+        function changeMonth(delta) {
+            currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + delta, 1);
+            render();
+        }
+
+        function openReservationModal(date = null, reservation = null) {
+            const modal = document.getElementById('reservationModal');
+            const title = document.getElementById('modalTitle');
+            const deleteBtn = document.getElementById('deleteReservationButton');
+
+            updateReservationNameSelect();
+
+            if (reservation) {
+                title.textContent = '予約編集';
+                document.getElementById('reservationDate').value = reservation.date;
+                document.getElementById('reservationName').value = reservation.name;
+                document.getElementById('reservationSeats').value = reservation.seats;
+                document.getElementById('reservationNotes').value = reservation.notes || '';
+                deleteBtn.classList.remove('hidden');
+                editingReservationId = reservation.id;
+            } else {
+                title.textContent = '予約追加';
+                document.getElementById('reservationDate').value = date || '';
+                document.getElementById('reservationName').value = '';
+                document.getElementById('reservationSeats').value = '2';
+                document.getElementById('reservationNotes').value = '';
+                deleteBtn.classList.add('hidden');
+                editingReservationId = null;
+            }
+
+            modal.classList.add('show');
+        }
+
+        function closeReservationModal() {
+            const modal = document.getElementById('reservationModal');
+            modal.classList.remove('show');
+            editingReservationId = null;
+        }
+
+        async function saveReservation() {
+            const date = document.getElementById('reservationDate').value;
+            const name = document.getElementById('reservationName').value;
+            const seats = parseInt(document.getElementById('reservationSeats').value);
+            const notes = document.getElementById('reservationNotes').value;
+
+            if (!date || !name || !seats) {
+                alert('日付、予約者、人数は必須です');
+                return;
+            }
+
+            const sameDay = reservations.filter(r => r.date === date && r.id !== editingReservationId);
+            const totalSeats = sameDay.reduce((sum, r) => sum + r.seats, 0) + seats;
+            
+            if (sameDay.length >= 2) {
+                alert('同じ日に最大2組まで予約可能です');
+                return;
+            }
+            
+            if (totalSeats > 8) {
+                alert(`席数が不足しています（使用可能: ${8 - (totalSeats - seats)}席）`);
+                return;
+            }
+
+            try {
+                if (editingReservationId) {
+                    await database.ref('reservations/' + editingReservationId).set({ date, name, seats, notes });
+                } else {
+                    const newRef = database.ref('reservations').push();
+                    await newRef.set({ date, name, seats, notes });
+                }
+                
+                await loadReservations();
+                closeReservationModal();
+                render();
+            } catch (e) {
+                console.error('予約保存エラー:', e);
+                alert('予約の保存に失敗しました');
+            }
+        }
+
+        async function deleteReservation() {
+            if (!editingReservationId) return;
+            
+            if (confirm('この予約を削除しますか？')) {
+                try {
+                    await database.ref('reservations/' + editingReservationId).remove();
+                    await loadReservations();
+                    closeReservationModal();
+                    render();
+                } catch (e) {
+                    console.error('予約削除エラー:', e);
+                    alert('予約の削除に失敗しました');
+                }
+            }
+        }
+
+        function getDaysInMonth(year, month) {
+            return new Date(year, month + 1, 0).getDate();
+        }
+
+        function getFirstDayOfMonth(year, month) {
+            return new Date(year, month, 1).getDay();
+        }
+
+        function formatDate(year, month, day) {
+            return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        }
+
+        function getReservationsForDate(dateStr) {
+            return reservations.filter(r => r.date === dateStr);
+        }
+
+        function render() {
+            const year = currentMonth.getFullYear();
+            const month = currentMonth.getMonth();
+            const daysInMonth = getDaysInMonth(year, month);
+            const firstDay = getFirstDayOfMonth(year, month);
+
+            const monthNames = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
+            const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+
+            const canGoPrev = !(year === 2026 && month === 0);
+            const canGoNext = !(year === 2026 && month === 11);
+
+            let calendarHTML = '';
+            let dayCounter = 1;
+
+            for (let week = 0; week < 6; week++) {
+                calendarHTML += '<div class="grid grid-cols-7 gap-2">';
+                
+                for (let day = 0; day < 7; day++) {
+                    const cellIndex = week * 7 + day;
+                    
+                    if (cellIndex < firstDay || dayCounter > daysInMonth) {
+                        calendarHTML += '<div class="aspect-square"></div>';
+                    } else {
+                        const dateStr = formatDate(year, month, dayCounter);
+                        const dayReservations = getReservationsForDate(dateStr);
+                        const isToday = dateStr === new Date().toISOString().split('T')[0];
+                        
+                        calendarHTML += `
+                            <div class="aspect-square bg-white rounded-lg shadow hover:shadow-lg transition-shadow border-2 ${isToday ? 'border-blue-500' : 'border-slate-200'} p-2 flex flex-col">
+                                <div class="text-sm font-bold mb-1 ${day === 0 ? 'text-red-600' : day === 6 ? 'text-blue-600' : 'text-slate-700'}">
+                                    ${dayCounter}
+                                </div>
+                                <div class="flex-1 overflow-y-auto space-y-1">
+                                    ${dayReservations.map(r => `
+                                        <div onclick="openReservationModal(null, ${JSON.stringify(r).replace(/"/g, '&quot;')})" 
+                                            class="text-xs p-1 rounded border-2 cursor-pointer hover:opacity-80 ${customerColors[r.name] || 'bg-slate-100 border-slate-300 text-slate-800'}">
+                                            <div class="font-bold">${r.name}</div>
+                                            <div>${r.seats}名</div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                                ${dayReservations.length < 2 ? `
+                                    <button onclick="openReservationModal('${dateStr}')" 
+                                        class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 rounded py-1 mt-1 transition-colors">
+                                        +
+                                    </button>
+                                ` : ''}
+                            </div>
+                        `;
+                        dayCounter++;
+                    }
+                }
+                
+                calendarHTML += '</div>';
+                
+                if (dayCounter > daysInMonth) break;
+            }
+
+            const app = document.getElementById('app');
+            app.innerHTML = `
+                <div class="max-w-7xl mx-auto">
+                    <div class="bg-white rounded-xl shadow-lg p-4 md:p-6 mb-6">
+                        <div class="flex items-center justify-between flex-wrap gap-4">
+                            <div>
+                                <h1 class="text-2xl md:text-3xl font-bold text-slate-800 mb-2">予約管理</h1>
+                                <p class="text-slate-600">築地貝徳 ディナー予約（最大8席・2組まで）</p>
+                            </div>
+                            <div class="flex gap-2">
+                                <button onclick="openCustomerModal()"
+                                    class="bg-purple-600 hover:bg-purple-700 text-white font-medium px-4 py-2 rounded-lg transition-colors">
+                                    👥 予約者管理
+                                </button>
+                                <a href="index.html" 
+                                    class="bg-slate-600 hover:bg-slate-700 text-white font-medium px-4 py-2 rounded-lg transition-colors">
+                                    ← トップへ
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                        <div class="flex items-center justify-between">
+                            <button onclick="changeMonth(-1)" 
+                                ${!canGoPrev ? 'disabled class="opacity-50 cursor-not-allowed"' : ''}
+                                class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-lg transition-colors">
+                                ← 前月
+                            </button>
+                            <h2 class="text-2xl md:text-3xl font-bold text-slate-800">
+                                ${year}年 ${monthNames[month]}
+                            </h2>
+                            <button onclick="changeMonth(1)" 
+                                ${!canGoNext ? 'disabled class="opacity-50 cursor-not-allowed"' : ''}
+                                class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-lg transition-colors">
+                                次月 →
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl shadow-lg p-4 md:p-6">
+                        <div class="grid grid-cols-7 gap-2 mb-2">
+                            ${dayNames.map((name, i) => `
+                                <div class="text-center font-bold text-sm ${i === 0 ? 'text-red-600' : i === 6 ? 'text-blue-600' : 'text-slate-700'}">
+                                    ${name}
+                                </div>
+                            `).join('')}
+                        </div>
+                        ${calendarHTML}
+                    </div>
+
+                    <div class="bg-white rounded-xl shadow-lg p-6 mt-6">
+                        <h3 class="font-bold text-slate-800 mb-4">予約者カラー</h3>
+                        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                            ${customers.map(name => `
+                                <div class="flex items-center gap-2">
+                                    <div class="w-4 h-4 rounded border-2 ${customerColors[name]}"></div>
+                                    <span class="text-sm">${name}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        window.openReservationModal = openReservationModal;
+        window.closeReservationModal = closeReservationModal;
+        window.saveReservation = saveReservation;
+        window.deleteReservation = deleteReservation;
+        window.changeMonth = changeMonth;
+        window.openCustomerModal = openCustomerModal;
+        window.closeCustomerModal = closeCustomerModal;
+        window.addCustomer = addCustomer;
+        window.deleteCustomer = deleteCustomer;
+
+        // 初期化
+        (async () => {
+            await initializeCustomers();
+            await loadReservations();
+            
+            // リアルタイム更新
+            database.ref('reservations').on('value', async () => {
+                await loadReservations();
+                render();
+            });
+            
+            database.ref('customers').on('value', async (snapshot) => {
+                if (snapshot.exists()) {
+                    customers = snapshot.val();
+                    customers.forEach((name, index) => {
+                        if (!customerColors[name]) {
+                            customerColors[name] = COLOR_PALETTE[index % COLOR_PALETTE.length];
+                        }
+                    });
+                    render();
+                }
+            });
+            
+            render();
+        })();
+    </script>
+</body>
+</html>
