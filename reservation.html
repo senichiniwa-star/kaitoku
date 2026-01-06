@@ -85,6 +85,49 @@
         </div>
     </div>
 
+    <!-- 担当スタッフ設定モーダル -->
+    <div id="staffModal" class="modal">
+        <div class="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 my-8">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold text-slate-800">担当スタッフ設定</h2>
+                <button onclick="closeStaffModal()" class="text-slate-400 hover:text-slate-600 text-3xl">&times;</button>
+            </div>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-2">営業日</label>
+                    <input type="text" id="staffDate" readonly
+                        class="w-full px-4 py-2 border-2 border-slate-300 rounded-lg bg-slate-100">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-2">担当スタッフ</label>
+                    <div class="space-y-2">
+                        <label class="flex items-center p-4 border-2 border-blue-200 rounded-lg cursor-pointer hover:bg-blue-50">
+                            <input type="radio" name="staff" value="仙一" class="w-5 h-5 mr-3">
+                            <span class="text-lg font-bold">仙一</span>
+                        </label>
+                        <label class="flex items-center p-4 border-2 border-green-200 rounded-lg cursor-pointer hover:bg-green-50">
+                            <input type="radio" name="staff" value="徳多郎" class="w-5 h-5 mr-3">
+                            <span class="text-lg font-bold">徳多郎</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-6 flex gap-3">
+                <button onclick="saveStaff()" 
+                    class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition-colors">
+                    設定
+                </button>
+                <button onclick="closeStaffModal()" 
+                    class="flex-1 bg-slate-300 hover:bg-slate-400 text-slate-700 font-bold py-3 rounded-lg transition-colors">
+                    キャンセル
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- 予約者管理モーダル -->
     <div id="customerModal" class="modal">
         <div class="bg-white rounded-xl shadow-2xl p-6 max-w-2xl w-full mx-4 my-8 max-h-[90vh] overflow-y-auto">
@@ -184,8 +227,10 @@
         let reservations = [];
         let customers = [];
         let customerColors = {};
+        let staffSchedule = {}; // 日付ごとの担当スタッフ
         let currentMonth = new Date(2026, 0, 1);
         let editingReservationId = null;
+        let editingStaffDate = null;
 
         async function initializeCustomers() {
             try {
@@ -205,6 +250,19 @@
             } catch (e) {
                 console.error('予約者データ読み込みエラー:', e);
                 customers = [...DEFAULT_CUSTOMERS];
+            }
+        }
+
+        async function loadStaffSchedule() {
+            try {
+                const snapshot = await database.ref('staffSchedule').once('value');
+                if (snapshot.exists()) {
+                    staffSchedule = snapshot.val();
+                } else {
+                    staffSchedule = {};
+                }
+            } catch (e) {
+                console.error('スタッフスケジュール読み込みエラー:', e);
             }
         }
 
@@ -249,7 +307,6 @@
         function closeCustomerModal() {
             const modal = document.getElementById('customerModal');
             modal.classList.remove('show');
-            render();
         }
 
         function renderCustomerModal() {
@@ -291,6 +348,40 @@
 
         function changeMonth(delta) {
             currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + delta, 1);
+            render();
+        }
+
+        function openStaffModal(date) {
+            editingStaffDate = date;
+            const modal = document.getElementById('staffModal');
+            document.getElementById('staffDate').value = date;
+            
+            const currentStaff = staffSchedule[date];
+            if (currentStaff) {
+                document.querySelector(`input[name="staff"][value="${currentStaff}"]`).checked = true;
+            } else {
+                document.querySelectorAll('input[name="staff"]').forEach(r => r.checked = false);
+            }
+            
+            modal.classList.add('show');
+        }
+
+        function closeStaffModal() {
+            const modal = document.getElementById('staffModal');
+            modal.classList.remove('show');
+            editingStaffDate = null;
+        }
+
+        async function saveStaff() {
+            const selected = document.querySelector('input[name="staff"]:checked');
+            if (!selected) {
+                alert('担当スタッフを選択してください');
+                return;
+            }
+            
+            staffSchedule[editingStaffDate] = selected.value;
+            await database.ref('staffSchedule').set(staffSchedule);
+            closeStaffModal();
             render();
         }
 
@@ -489,10 +580,11 @@
                 return;
             }
 
-            let csv = '予約日,予約者,人数,備考\n';
+            let csv = '予約日,予約者,人数,担当スタッフ,備考\n';
             
             reservations.sort((a, b) => a.date.localeCompare(b.date)).forEach(r => {
-                csv += `"${r.date}","${r.name}","${r.seats}","${r.notes || ''}"\n`;
+                const staff = staffSchedule[r.date] || '';
+                csv += `"${r.date}","${r.name}","${r.seats}","${staff}","${r.notes || ''}"\n`;
             });
 
             const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
@@ -554,15 +646,31 @@
                         const dayReservations = getReservationsForDate(dateStr);
                         const isToday = dateStr === new Date().toISOString().split('T')[0];
                         const hasReservations = dayReservations.length > 0;
+                        const staff = staffSchedule[dateStr];
                         
                         calendarHTML += `
                             <div class="relative bg-white rounded-lg shadow transition-all border-2 ${
                                 isToday ? 'border-blue-500' : hasReservations ? 'border-green-400' : 'border-slate-200'
                             } ${hasReservations ? 'bg-green-50' : ''} hover:shadow-lg p-1 md:p-2">
-                                <div class="text-xs md:text-sm font-bold mb-1 ${
-                                    day === 0 ? 'text-red-600' : day === 6 ? 'text-blue-600' : 'text-slate-700'
-                                }">
-                                    ${dayCounter}
+                                <div class="flex items-center justify-between mb-1">
+                                    <div class="text-xs md:text-sm font-bold ${
+                                        day === 0 ? 'text-red-600' : day === 6 ? 'text-blue-600' : 'text-slate-700'
+                                    }">
+                                        ${dayCounter}
+                                    </div>
+                                    ${staff ? `
+                                        <button onclick="openStaffModal('${dateStr}')" 
+                                            class="text-xs px-1 py-0.5 rounded ${
+                                                staff === '仙一' ? 'bg-blue-200 text-blue-800' : 'bg-green-200 text-green-800'
+                                            } font-bold">
+                                            ${staff}
+                                        </button>
+                                    ` : `
+                                        <button onclick="openStaffModal('${dateStr}')" 
+                                            class="text-xs px-1 py-0.5 rounded bg-slate-200 text-slate-600 hover:bg-slate-300">
+                                            +
+                                        </button>
+                                    `}
                                 </div>
                                 <div class="space-y-1 min-h-[40px] md:min-h-[60px]">
                                     ${dayReservations.map(r => `
@@ -646,7 +754,17 @@
                     </div>
 
                     <div class="bg-white rounded-xl shadow-lg p-4 md:p-6 mt-6">
-                        <h3 class="font-bold text-slate-800 mb-4">予約者カラー</h3>
+                        <h3 class="font-bold text-slate-800 mb-4">予約者カラー / 担当スタッフ</h3>
+                        <div class="grid grid-cols-2 gap-4 mb-4">
+                            <div class="flex items-center gap-2 text-sm">
+                                <div class="px-3 py-1 rounded bg-blue-200 text-blue-800 font-bold">仙一</div>
+                                <span>スタッフ: 仙一</span>
+                            </div>
+                            <div class="flex items-center gap-2 text-sm">
+                                <div class="px-3 py-1 rounded bg-green-200 text-green-800 font-bold">徳多郎</div>
+                                <span>スタッフ: 徳多郎</span>
+                            </div>
+                        </div>
                         <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
                             ${customers.map(name => `
                                 <div class="flex items-center gap-2">
@@ -672,9 +790,13 @@
         window.openAnalyticsModal = openAnalyticsModal;
         window.closeAnalyticsModal = closeAnalyticsModal;
         window.downloadReservationCSV = downloadReservationCSV;
+        window.openStaffModal = openStaffModal;
+        window.closeStaffModal = closeStaffModal;
+        window.saveStaff = saveStaff;
 
         (async () => {
             await initializeCustomers();
+            await loadStaffSchedule();
             await loadReservations();
             
             database.ref('reservations').on('value', async () => {
@@ -690,6 +812,13 @@
                             customerColors[name] = COLOR_PALETTE[index % COLOR_PALETTE.length];
                         }
                     });
+                    render();
+                }
+            });
+
+            database.ref('staffSchedule').on('value', async (snapshot) => {
+                if (snapshot.exists()) {
+                    staffSchedule = snapshot.val();
                     render();
                 }
             });
