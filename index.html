@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>築地貝徳 管理システム</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Hiragino Sans', 'Yu Gothic', sans-serif; }
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+        .card-hover:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8 md:py-16">
+        <!-- ヘッダー -->
+        <div class="text-center mb-12 md:mb-16">
+            <h1 class="text-5xl md:text-7xl font-bold text-slate-800 mb-4">築地貝徳</h1>
+            <p class="text-xl md:text-2xl text-slate-600">内部管理システム</p>
+            <div class="mt-6 text-sm text-slate-500">
+                運営スタッフ専用ページ
+            </div>
+        </div>
+
+        <!-- メインカード -->
+        <div class="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
+            <!-- 予約管理カード -->
+            <a href="reservation.html" class="block">
+                <div class="card-hover bg-white rounded-2xl shadow-xl p-8 md:p-10 border-4 border-blue-100">
+                    <div class="text-center">
+                        <div class="w-20 h-20 md:w-24 md:h-24 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <svg class="w-10 h-10 md:w-12 md:h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                            </svg>
+                        </div>
+                        <h2 class="text-2xl md:text-3xl font-bold text-slate-800 mb-4">予約管理</h2>
+                        <p class="text-slate-600 mb-6">
+                            座席予約の確認・追加・変更<br>
+                            1月〜3月の予約状況を管理
+                        </p>
+                        <div class="inline-flex items-center text-blue-600 font-semibold">
+                            管理画面を開く
+                            <svg class="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </a>
+
+            <!-- ドリンク管理カード -->
+            <a href="drink.html" class="block">
+                <div class="card-hover bg-white rounded-2xl shadow-xl p-8 md:p-10 border-4 border-green-100">
+                    <div class="text-center">
+                        <div class="w-20 h-20 md:w-24 md:h-24 bg-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <svg class="w-10 h-10 md:w-12 md:h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
+                            </svg>
+                        </div>
+                        <h2 class="text-2xl md:text-3xl font-bold text-slate-800 mb-4">ドリンク管理</h2>
+                        <p class="text-slate-600 mb-6">
+                            注文管理・価格設定<br>
+                            売上データの確認・分析
+                        </p>
+                        <div class="inline-flex items-center text-green-600 font-semibold">
+                            管理画面を開く
+                            <svg class="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </a>
+        </div>
+
+        <!-- フッター情報 -->
+        <div class="max-w-4xl mx-auto mt-12 md:mt-16 text-center">
+            <div class="bg-white/50 backdrop-blur rounded-xl p-6 shadow-lg">
+                <h3 class="font-bold text-slate-800 mb-3">アクセス権限者</h3>
+                <div class="flex flex-wrap justify-center gap-2 text-sm text-slate-600">
+                    <span class="bg-white px-3 py-1 rounded-full shadow">椎名</span>
+                    <span class="bg-white px-3 py-1 rounded-full shadow">豊國</span>
+                    <span class="bg-white px-3 py-1 rounded-full shadow">呂</span>
+                    <span class="bg-white px-3 py-1 rounded-full shadow">加藤</span>
+                    <span class="bg-white px-3 py-1 rounded-full shadow">丹羽</span>
+                    <span class="bg-white px-3 py-1 rounded-full shadow">小早川</span>
+                    <span class="bg-white px-3 py-1 rounded-full shadow">石田</span>
+                    <span class="bg-white px-3 py-1 rounded-full shadow">種谷</span>
+                    <span class="bg-white px-3 py-1 rounded-full shadow">山村</span>
+                    <span class="bg-white px-3 py-1 rounded-full shadow">大島</span>
+                    <span class="bg-white px-3 py-1 rounded-full shadow">赤川</span>
+                    <span class="bg-white px-3 py-1 rounded-full shadow">市場</span>
+                    <span class="bg-white px-3 py-1 rounded-full shadow">マーク</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
