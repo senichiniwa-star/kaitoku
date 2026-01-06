@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>築地貝徳 注文管理</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <style>
+        body { font-family: 'Hiragino Sans', 'Yu Gothic', sans-serif; }
+        .flash { animation: flash 0.3s ease-out; }
+        @keyframes flash {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); background-color: #4ade80; }
+            100% { transform: scale(1); }
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            overflow-y: auto;
+        }
+        .modal.show {
+            display: flex;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 to-slate-100 min-h-screen">
+    <div id="app" class="p-4 md:p-6"></div>
+    
+    <!-- 売上編集モーダル -->
+    <div id="editSalesModal" class="modal">
+        <div class="bg-white rounded-xl shadow-2xl p-6 max-w-2xl w-full mx-4 my-8 max-h-[80vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold text-slate-800">売上データ編集</h2>
+                <button onclick="closeEditSalesModal()" class="text-slate-400 hover:text-slate-600 text-3xl">&times;</button>
+            </div>
+            
+            <div id="editSalesContent"></div>
+
+            <div class="mt-6 flex gap-3">
+                <button onclick="saveEditedSale()" 
+                    class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition-colors">
+                    保存
+                </button>
+                <button onclick="deleteEditedSale()" 
+                    class="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg transition-colors">
+                    削除
+                </button>
+                <button onclick="closeEditSalesModal()" 
+                    class="flex-1 bg-slate-300 hover:bg-slate-400 text-slate-700 font-bold py-3 rounded-lg transition-colors">
+                    キャンセル
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyAuzBKMdD_2IQOWEMm9bK7bjEem3OTwrXE",
+            authDomain: "kaitoku-32394.firebaseapp.com",
+            databaseURL: "https://kaitoku-32394-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "kaitoku-32394",
+            storageBucket: "kaitoku-32394.firebasestorage.app",
+            messagingSenderId: "166132839262",
+            appId: "1:166132839262:web:128ce9ebe95b1c6bfa55cf"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+
+        const menuItems = [
+            { id: 'course', name: '基本コース', price: 10000, category: 'course' },
+            { id: 'crab', name: '蟹オプション', price: 3000, category: 'option' },
+            { id: 1, name: 'お水', price: 0, category: 'drink' },
+            { id: 2, name: '炭酸水', price: 0, category: 'drink' },
+            { id: 3, name: 'お茶', price: 0, category: 'drink' },
+            { id: 4, name: 'ハイボール（生ビール）', price: 700, category: 'drink' },
+            { id: 5, name: 'アサヒ黒生（瓶ビール）', price: 700, category: 'drink' },
+            { id: 6, name: 'ハイボール', price: 700, category: 'drink' },
+            { id: 7, name: 'ウイスキー ジャックダニエル', price: 2500, category: 'drink' },
+            { id: 8, name: 'ウイスキー サントリー角', price: 2500, category: 'drink' },
+            { id: 9, name: '焼酎（DAIYAME）', price: 1200, category: 'drink' },
+            { id: 10, name: '日本酒（酔鯨）', price: 1200, category: 'drink' },
+            { id: 11, name: '日本酒（景虎）', price: 1200, category: 'drink' },
+            { id: 12, name: '赤ワイン', price: 2000, category: 'drink' },
+            { id: 13, name: '白ワイン', price: 2000, category: 'drink' },
+            { id: 14, name: 'ソフトドリンク　各種', price: 300, category: 'drink' },
+            { id: 15, name: 'ワイン持ち込み', price: 4000, category: 'drink' },
+        ];
+
+        let orders = {};
+        let selectedSeat = 1;
+        let flashingItem = null;
+        let salesHistory = [];
+        let reservations = [];
+        let staffSchedule = {};
+        let currentView = 'order';
+        let todayDate = new Date().toISOString().split('T')[0];
+        let editingSaleId = null;
+
+        async function loadReservations() {
+            try {
+                const snapshot = await database.ref('reservations').once('value');
+                if (snapshot.exists()) {
+                    const data = snapshot.val();
+                    reservations = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+                } else {
+                    reservations = [];
+                }
+            } catch (e) {
+                console.error('予約データ読み込みエラー:', e);
+            }
+        }
+
+        async function loadStaffSchedule() {
+            try {
+                const snapshot = await database.ref('staffSchedule').once('value');
+                if (snapshot.exists()) {
+                    staffSchedule = snapshot.val();
+                } else {
+                    staffSchedule = {};
+                }
+            } catch (e) {
+                console.error('スタッフスケジュール読み込みエラー:', e);
+            }
+        }
+
+        async function loadSalesData() {
+            try {
+                const snapshot = await database.ref('sales').once('value');
+                if (snapshot.exists()) {
+                    const data = snapshot.val();
+                    salesHistory = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+                } else {
+                    salesHistory = [];
+                }
+            } catch (e) {
+                console.log('売上データ読み込みエラー:', e);
+            }
+        }
+
+        async function saveSalesData() {
+            try {
+                const salesObj = {};
+                salesHistory.forEach(sale => {
+                    salesObj[sale.id] = { ...sale };
+                    delete salesObj[sale.id].id;
+                });
+                await database.ref('sales').set(salesObj);
+            } catch (e) {
+                console.error('売上データ保存エラー:', e);
+            }
+        }
+
+        function getTodayReservations() {
+            return reservations.filter(r => r.date === todayDate);
+        }
+
+        function getTodayStaff() {
+            return staffSchedule[todayDate] || '未設定';
+        }
+
+        function initializeOrdersFromReservations() {
+            const todayReservations = getTodayReservations();
+            let seatCounter = 1;
+            
+            todayReservations.forEach(reservation => {
+                if (!orders[seatCounter]) {
+                    orders[seatCounter] = [];
+                    // 基本コースを人数分追加
+                    for (let i = 0; i < reservation.seats; i++) {
+                        orders[seatCounter].push({
+                            ...menuItems.find(m => m.id === 'course'),
+                            orderId: Date.now() + i,
+                            reservationName: reservation.name
+                        });
+                    }
+                }
+                seatCounter++;
+            });
+        }
+
+        function addOrder(item) {
+            if (!orders[selectedSeat]) orders[selectedSeat] = [];
+            orders[selectedSeat].push({ ...item, orderId: Date.now() });
+            
+            flashingItem = item.id;
+            setTimeout(() => {
+                flashingItem = null;
+                render();
+            }, 300);
+            
+            render();
+        }
+
+        function removeOrder(seat, orderId) {
+            orders[seat] = orders[seat].filter(o => o.orderId !== orderId);
+            if (orders[seat].length === 0) delete orders[seat];
+            render();
+        }
+
+        function calculateSeatTotal(seat) {
+            if (!orders[seat]) return 0;
+            return orders[seat].reduce((sum, o) => sum + o.price, 0);
+        }
+
+        function calculateAllTotal() {
+            return Object.keys(orders).reduce((sum, seat) => sum + calculateSeatTotal(parseInt(seat)), 0);
+        }
+
+        async function checkoutSeat(seat) {
+            if (orders[seat] && orders[seat].length > 0) {
+                const total = calculateSeatTotal(seat);
+                const staff = getTodayStaff();
+                
+                const saleRecord = {
+                    id: Date.now().toString(),
+                    timestamp: new Date().toISOString(),
+                    date: todayDate,
+                    time: new Date().toLocaleTimeString('ja-JP'),
+                    seat: seat,
+                    staff: staff,
+                    items: orders[seat].map(o => ({ name: o.name, price: o.price })),
+                    total: total
+                };
+                salesHistory.push(saleRecord);
+                await saveSalesData();
+                
+                alert(`席${seat}番：お会計 ¥${total.toLocaleString()}\n担当：${staff}\n\n売上データに記録しました`);
+                delete orders[seat];
+                render();
+            }
+        }
+
+        async function checkoutMultiple() {
+            const selectedSeats = [];
+            document.querySelectorAll('input[name="selectSeat"]:checked').forEach(cb => {
+                selectedSeats.push(parseInt(cb.value));
+            });
+
+            if (selectedSeats.length === 0) {
+                alert('会計する席を選択してください');
+                return;
+            }
+
+            const staff = getTodayStaff();
+            
+            for (const seat of selectedSeats) {
+                if (orders[seat] && orders[seat].length > 0) {
+                    const total = calculateSeatTotal(seat);
+                    const saleRecord = {
+                        id: Date.now().toString() + '-' + seat,
+                        timestamp: new Date().toISOString(),
+                        date: todayDate,
+                        time: new Date().toLocaleTimeString('ja-JP'),
+                        seat: seat,
+                        staff: staff,
+                        items: orders[seat].map(o => ({ name: o.name, price: o.price })),
+                        total: total
+                    };
+                    salesHistory.push(saleRecord);
+                }
+            }
+
+            await saveSalesData();
+            
+            const totalAmount = selectedSeats.reduce((sum, seat) => sum + calculateSeatTotal(seat), 0);
+            alert(`席${selectedSeats.join(', ')}番：まとめてお会計 ¥${totalAmount.toLocaleString()}\n担当：${staff}\n\n売上データに記録しました`);
+            
+            selectedSeats.forEach(seat => delete orders[seat]);
+            render();
+        }
+
+        function openEditSalesModal(sale) {
+            editingSaleId = sale.id;
+            const modal = document.getElementById('editSalesModal');
+            const content = document.getElementById('editSalesContent');
+            
+            content.innerHTML = `
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-bold text-slate-700 mb-2">日付</label>
+                        <input type="date" id="editDate" value="${sale.date}"
+                            class="w-full px-4 py-2 border-2 border-slate-300 rounded-lg focus:border-blue-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-slate-700 mb-2">席番号</label>
+                        <input type="number" id="editSeat" value="${sale.seat}" min="1" max="8"
+                            class="w-full px-4 py-2 border-2 border-slate-300 rounded-lg focus:border-blue-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-slate-700 mb-2">担当スタッフ</label>
+                        <select id="editStaff" class="w-full px-4 py-2 border-2 border-slate-300 rounded-lg focus:border-blue-500 focus:outline-none">
+                            <option value="仙一" ${sale.staff === '仙一' ? 'selected' : ''}>仙一</option>
+                            <option value="徳多郎" ${sale.staff === '徳多郎' ? 'selected' : ''}>徳多郎</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-slate-700 mb-2">注文内容</label>
+                        <div class="space-y-2" id="editItems">
+                            ${sale.items.map((item, index) => `
+                                <div class="flex gap-2">
+                                    <input type="text" value="${item.name}" 
+                                        class="flex-1 px-3 py-2 border-2 border-slate-300 rounded-lg" 
+                                        data-index="${index}" data-field="name">
+                                    <input type="number" value="${item.price}" 
+                                        class="w-32 px-3 py-2 border-2 border-slate-300 rounded-lg" 
+                                        data-index="${index}" data-field="price">
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-slate-700 mb-2">合計金額</label>
+                        <input type="number" id="editTotal" value="${sale.total}"
+                            class="w-full px-4 py-2 border-2 border-slate-300 rounded-lg focus:border-blue-500 focus:outline-none">
+                    </div>
+                </div>
+            `;
+            
+            modal.classList.add('show');
+        }
+
+        function closeEditSalesModal() {
+            const modal = document.getElementById('editSalesModal');
+            modal.classList.remove('show');
+            editingSaleId = null;
+        }
+
+        async function saveEditedSale() {
+            const sale = salesHistory.find(s => s.id === editingSaleId);
+            if (!sale) return;
+
+            sale.date = document.getElementById('editDate').value;
+            sale.seat = parseInt(document.getElementById('editSeat').value);
+            sale.staff = document.getElementById('editStaff').value;
+            sale.total = parseInt(document.getElementById('editTotal').value);
+            
+            sale.items = [];
+            document.querySelectorAll('#editItems input[data-field="name"]').forEach((input, index) => {
+                const priceInput = document.querySelector(`#editItems input[data-index="${index}"][data-field="price"]`);
+                sale.items.push({
+                    name: input.value,
+                    price: parseInt(priceInput.value)
+                });
+            });
+
+            await saveSalesData();
+            closeEditSalesModal();
+            render();
+            alert('売上データを更新しました');
+        }
+
+        async function deleteEditedSale() {
+            if (confirm('この売上データを削除しますか？')) {
+                salesHistory = salesHistory.filter(s => s.id !== editingSaleId);
+                await saveSalesData();
+                closeEditSalesModal();
+                render();
+                alert('売上データを削除しました');
+            }
+        }
+
+        async function clearSalesData() {
+            if (confirm('本当に売上データを全て削除しますか？\nこの操作は取り消せません。')) {
+                salesHistory = [];
+                await database.ref('sales').remove();
+                alert('売上データを削除しました');
+                render();
+            }
+        }
+
+        function getMonthlyStats() {
+            const stats = {};
+            
+            salesHistory.forEach(sale => {
+                const month = sale.date.substring(0, 7);
+                const staff = sale.staff || '未設定';
+                
+                if (!stats[month]) {
+                    stats[month] = {
+                        total: 0,
+                        count: 0,
+                        staff: { '仙一': { total: 0, days: new Set() }, '徳多郎': { total: 0, days: new Set() } }
+                    };
+                }
+                
+                stats[month].total += sale.total;
+                stats[month].count++;
+                
+                if (staff === '仙一' || staff === '徳多郎') {
+                    stats[month].staff[staff].total += sale.total;
+                    stats[month].staff[staff].days.add(sale.date);
+                }
+            });
+            
+            // Setをサイズに変換
+            Object.keys(stats).forEach(month => {
+                stats[month].staff['仙一'].days = stats[month].staff['仙一'].days.size;
+                stats[month].staff['徳多郎'].days = stats[month].staff['徳多郎'].days.size;
+            });
+            
+            return stats;
+        }
+
+        function downloadCSV() {
+            if (salesHistory.length === 0) {
+                alert('ダウンロードする売上データがありません');
+                return;
+            }
+
+            let csv = '日付,時間,席番号,担当スタッフ,商品名,単価,合計金額\n';
+            
+            salesHistory.forEach(sale => {
+                sale.items.forEach((item, index) => {
+                    if (index === 0) {
+                        csv += `"${sale.date}","${sale.time}","${sale.seat}","${sale.staff}","${item.name}","¥${item.price}","¥${sale.total}"\n`;
+                    } else {
+                        csv += `"","","","","${item.name}","¥${item.price}",""\n`;
+                    }
+                });
+            });
+
+            const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+            const blob = new Blob([bom, csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            
+            const link = document.createElement('a');
+            const today = new Date().toISOString().split('T')[0];
+            link.href = url;
+            link.download = `築地貝徳_売上データ_${today}.csv`;
+            link.click();
+            
+            URL.revokeObjectURL(url);
+            
+            alert('CSVファイルをダウンロードしました');
+        }
+
+        window.clearSalesData = clearSalesData;
+        window.downloadCSV = downloadCSV;
+        window.openEditSalesModal = openEditSalesModal;
+        window.closeEditSalesModal = closeEditSalesModal;
+        window.saveEditedSale = saveEditedSale;
+        window.deleteEditedSale = deleteEditedSale;
+
+        function renderAnalytics() {
+            const monthlyStats = getMonthlyStats();
+            const sortedMonths = Object.keys(monthlyStats).sort().reverse();
+
+            return `
+                <div class="max-w-6xl mx-auto">
+                    <div class="bg-white rounded-lg shadow-lg p-4 md:p-6 mb-4 md:mb-6">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h1 class="text-2xl md:text-3xl font-bold text-slate-800 mb-2">売上分析</h1>
+                                <p class="text-slate-600">データ数：${salesHistory.length}件</p>
+                            </div>
+                            <button onclick="currentView='order'; render();"
+                                class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded-lg">
+                                注文画面へ
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="space-y-6">
+                        ${sortedMonths.map(month => {
+                            const stat = monthlyStats[month];
+                            return `
+                                <div class="bg-white rounded-lg shadow-lg p-6">
+                                    <h2 class="text-2xl font-bold text-slate-800 mb-4">${month}</h2>
+                                    
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                                        <div class="bg-blue-50 rounded-lg p-4">
+                                            <h3 class="font-bold text-lg mb-3 text-blue-800">仙一</h3>
+                                            <div class="space-y-2">
+                                                <div class="flex justify-between">
+                                                    <span>売上</span>
+                                                    <span class="font-bold text-blue-600">¥${stat.staff['仙一'].total.toLocaleString()}</span>
+                                                </div>
+                                                <div class="flex justify-between">
+                                                    <span>出勤日数</span>
+                                                    <span class="font-bold text-blue-600">${stat.staff['仙一'].days}日</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="bg-green-50 rounded-lg p-4">
+                                            <h3 class="font-bold text-lg mb-3 text-green-800">徳多郎</h3>
+                                            <div class="space-y-2">
+                                                <div class="flex justify-between">
+                                                    <span>売上</span>
+                                                    <span class="font-bold text-green-600">¥${stat.staff['徳多郎'].total.toLocaleString()}</span>
+                                                </div>
+                                                <div class="flex justify-between">
+                                                    <span>出勤日数</span>
+                                                    <span class="font-bold text-green-600">${stat.staff['徳多郎'].days}日</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="border-t-2 border-slate-200 pt-4">
+                                        <div class="flex justify-between text-lg">
+                                            <span class="font-bold">月次合計</span>
+                                            <span class="font-bold text-slate-800">¥${stat.total.toLocaleString()}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+
+                    <div class="bg-white rounded-lg shadow-lg p-4 md:p-6 mt-6">
+                        <h2 class="text-xl font-bold text-slate-800 mb-4">売上履歴（最新20件）</h2>
+                        <div class="space-y-3 max-h-96 overflow-y-auto">
+                            ${salesHistory.slice(-20).reverse().map(sale => `
+                                <div onclick="openEditSalesModal(${JSON.stringify(sale).replace(/"/g, '&quot;')})"
+                                    class="border border-slate-200 rounded-lg p-3 cursor-pointer hover:bg-slate-50">
+                                    <div class="flex justify-between items-start mb-2">
+                                        <div class="text-sm text-slate-600">
+                                            ${sale.date} ${sale.time} - 席${sale.seat}番 - ${sale.staff}
+                                        </div>
+                                        <div class="font-bold text-blue-600">¥${sale.total.toLocaleString()}</div>
+                                    </div>
+                                    <div class="text-xs text-slate-500">
+                                        ${sale.items.map(item => item.name).join(', ')}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-lg shadow-lg p-4 md:p-6 mt-6">
+                        <h2 class="text-xl font-bold text-slate-800 mb-4">データ管理</h2>
+                        <div class="space-y-3">
+                            <button onclick="downloadCSV()"
+                                class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-3 rounded-lg w-full text-lg">
+                                📥 売上データをCSVダウンロード
+                            </button>
+                            <button onclick="clearSalesData()"
+                                class="bg-red-600 hover:bg-red-700 text-white font-bold px-6 py-3 rounded-lg w-full text-lg">
+                                🗑️ 売上データを全て削除
+                            </button>
+                        </div>
+                        <p class="text-sm text-slate-500 mt-2">※削除したデータは復元できません</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderOrder() {
+            const todayReservations = getTodayReservations();
+            const todayStaff = getTodayStaff();
+
+            return `
+                <div class="max-w-6xl mx-auto">
+                    <div class="bg-white rounded-lg shadow-lg p-4 md:p-6 mb-4 md:mb-6">
+                        <div class="flex items-center justify-between flex-wrap gap-3">
+                            <div>
+                                <h1 class="text-2xl md:text-3xl font-bold text-slate-800 mb-2">築地貝徳</h1>
+                                <p class="text-slate-600">注文管理システム</p>
+                                <p class="text-sm text-slate-500 mt-1">日付: ${todayDate} / 担当: ${todayStaff}</p>
+                            </div>
+                            <div class="flex gap-2 flex-wrap">
+                                <button onclick="currentView='analytics'; render();"
+                                    class="bg-green-600 hover:bg-green-700 text-white font-medium px-4 py-2 rounded-lg">
+                                    📊 売上分析
+                                </button>
+                                <a href="index.html"
+                                    class="bg-slate-600 hover:bg-slate-700 text-white font-medium px-4 py-2 rounded-lg">
+                                    ← トップへ
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    ${todayReservations.length === 0 ? `
+                        <div class="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-6 mb-6">
+                            <p class="text-yellow-800 font-bold">⚠️ 本日の予約がありません</p>
+                            <p class="text-yellow-700 text-sm mt-2">予約管理画面で予約を追加してください</p>
+                        </div>
+                    ` : ''}
+
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
+                        <div class="lg:col-span-2 space-y-4 md:space-y-6">
+                            <div class="bg-white rounded-lg shadow-lg p-4 md:p-6">
+                                <h2 class="text-lg md:text-xl font-bold text-slate-800 mb-4">席を選択</h2>
+                                <div class="grid grid-cols-4 gap-2 md:gap-3">
+                                    ${[1,2,3,4,5,6,7,8].map(seat => `
+                                        <button onclick="selectedSeat=${seat}; render();" 
+                                            class="p-3 md:p-4 rounded-lg font-bold text-base md:text-lg transition-all ${
+                                                selectedSeat === seat
+                                                    ? 'bg-blue-600 text-white shadow-lg scale-105'
+                                                    : orders[seat]?.length > 0
+                                                    ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                            }">
+                                            ${seat}番
+                                            ${orders[seat]?.length > 0 ? `<div class="text-xs mt-1">(${orders[seat].length}品)</div>` : ''}
+                                        </button>
+                                    `).join('')}
+                                </div>
+                            </div>
+
+                            <div class="bg-white rounded-lg shadow-lg p-4 md:p-6">
+                                <h2 class="text-lg md:text-xl font-bold text-slate-800 mb-4">
+                                    メニュー（席${selectedSeat}番）
+                                </h2>
+                                
+                                <div class="mb-4">
+                                    <h3 class="font-bold text-slate-700 mb-2">コース・オプション</h3>
+                                    <div class="grid grid-cols-2 gap-2">
+                                        ${menuItems.filter(m => m.category === 'course' || m.category === 'option').map(item => `
+                                            <button onclick="addOrder(${JSON.stringify(item).replace(/"/g, '&quot;')})"
+                                                class="flex flex-col items-start p-3 rounded-lg transition-all border-2 active:scale-95 ${
+                                                    flashingItem === item.id
+                                                        ? 'bg-green-400 border-green-500'
+                                                        : 'bg-slate-50 hover:bg-blue-50 border-transparent hover:border-blue-300'
+                                                }">
+                                                <span class="font-medium text-sm ${
+                                                    flashingItem === item.id ? 'text-white' : 'text-slate-800'
+                                                }">
+                                                    ${item.name}
+                                                </span>
+                                                <span class="font-bold text-base mt-1 ${
+                                                    flashingItem === item.id ? 'text-white' : 'text-blue-600'
+                                                }">
+                                                    ¥${item.price.toLocaleString()}
+                                                </span>
+                                            </button>
+                                        `).join('')}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <h3 class="font-bold text-slate-700 mb-2">ドリンク</h3>
+                                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                        ${menuItems.filter(m => m.category === 'drink').map(item => `
+                                            <button onclick="addOrder(${JSON.stringify(item).replace(/"/g, '&quot;')})"
+                                                class="flex flex-col items-start p-2 rounded-lg transition-all border-2 active:scale-95 ${
+                                                    flashingItem === item.id
+                                                        ? 'bg-green-400 border-green-500'
+                                                        : 'bg-slate-50 hover:bg-blue-50 border-transparent hover:border-blue-300'
+                                                }">
+                                                <span class="font-medium text-xs ${
+                                                    flashingItem === item.id ? 'text-white' : 'text-slate-800'
+                                                }">
+                                                    ${item.name}
+                                                </span>
+                                                <span class="font-bold text-sm mt-1 ${
+                                                    flashingItem === item.id ? 'text-white' : 'text-blue-600'
+                                                }">
+                                                    ${item.price === 0 ? '無料' : `¥${item.price.toLocaleString()}`}
+                                                </span>
+                                            </button>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="space-y-4 md:space-y-6">
+                            <div class="bg-white rounded-lg shadow-lg p-4 md:p-6">
+                                <h2 class="text-lg md:text-xl font-bold text-slate-800 mb-4">現在の注文</h2>
+                                <div class="space-y-4 max-h-96 overflow-y-auto">
+                                    ${Object.keys(orders).sort((a,b) => a-b).map(seat => {
+                                        const seatOrders = orders[seat];
+                                        if (!seatOrders || seatOrders.length === 0) return '';
+                                        return `
+                                            <div class="border-2 border-slate-200 rounded-lg p-3 md:p-4">
+                                                <div class="flex items-center justify-between mb-3">
+                                                    <div class="flex items-center gap-2">
+                                                        <input type="checkbox" name="selectSeat" value="${seat}" 
+                                                            class="w-5 h-5">
+                                                        <h3 class="font-bold text-slate-800">席${seat}番</h3>
+                                                    </div>
+                                                    <span class="font-bold text-blue-600">
+                                                        ¥${calculateSeatTotal(parseInt(seat)).toLocaleString()}
+                                                    </span>
+                                                </div>
+                                                <div class="space-y-2">
+                                                    ${seatOrders.map(order => `
+                                                        <div class="flex items-center justify-between text-sm bg-slate-50 p-2 rounded">
+                                                            <span class="text-slate-700">${order.name}</span>
+                                                            <div class="flex items-center gap-2">
+                                                                <span class="text-slate-600">
+                                                                    ${order.price === 0 ? '無料' : `¥${order.price.toLocaleString()}`}
+                                                                </span>
+                                                                <button onclick="removeOrder(${seat}, ${order.orderId})"
+                                                                    class="text-red-500 hover:text-red-700 text-xl">
+                                                                    ×
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    `).join('')}
+                                                </div>
+                                                <button onclick="checkoutSeat(${seat})"
+                                                    class="w-full mt-3 bg-green-600 hover:bg-green-700 text-white font-medium py-2 rounded-lg transition-colors">
+                                                    💰 個別会計
+                                                </button>
+                                            </div>
+                                        `;
+                                    }).join('')}
+                                </div>
+                            </div>
+
+                            ${calculateAllTotal() > 0 ? `
+                                <div class="bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg shadow-lg p-4 md:p-6 text-white">
+                                    <h2 class="text-lg md:text-xl font-bold mb-4">まとめて会計</h2>
+                                    <div class="text-3xl md:text-4xl font-bold mb-4">
+                                        ¥${calculateAllTotal().toLocaleString()}
+                                    </div>
+                                    <button onclick="checkoutMultiple()"
+                                        class="w-full bg-white text-blue-700 font-bold py-2 md:py-3 rounded-lg hover:bg-blue-50 transition-colors">
+                                        👥 選択した席をまとめて会計
+                                    </button>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function render() {
+            const app = document.getElementById('app');
+            app.innerHTML = currentView === 'analytics' ? renderAnalytics() : renderOrder();
+        }
+
+        (async () => {
+            await loadReservations();
+            await loadStaffSchedule();
+            await loadSalesData();
+            
+            initializeOrdersFromReservations();
+            
+            database.ref('sales').on('value', async () => {
+                await loadSalesData();
+                if (currentView === 'analytics') render();
+            });
+            
+            render();
+        })();
+    </script>
+</body>
+</html>
